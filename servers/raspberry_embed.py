@@ -61,6 +61,7 @@ def trigger_gpio(relay_pin, relay_number=None, duration=0.3):
 
 
 def trigger_hid(hidraw_path, duration=0.3):
+    print(f"🔌 Starting HID relay control for {hidraw_path} (duration: {duration}s)")
     candidates = []
     if os.path.exists(hidraw_path):
         candidates.append(hidraw_path)
@@ -78,8 +79,10 @@ def trigger_hid(hidraw_path, duration=0.3):
             devices.append(p)
 
     if not devices:
-        print(f"HID device not found: {hidraw_path} and no candidates")
+        print(f"❌ HID device not found: {hidraw_path} and no candidates")
         return
+
+    print(f"📋 Found {len(devices)} candidate devices: {devices}")
 
     # Different command sets for different relay types
     command_sets = [
@@ -88,20 +91,25 @@ def trigger_hid(hidraw_path, duration=0.3):
             'on': b'\xA0\x01\x01\xA2',
             'off': b'\xA0\x01\x00\xA1'
         },
-        # Alternative relay commands
-        {
-            'on': b'\xFF\x01\x01',
-            'off': b'\xFF\x01\x00'
-        },
-        # CH340-based relay commands
+        # Alternative relay commands with different checksum
         {
             'on': b'\xA0\x01\x01',
             'off': b'\xA0\x01\x00'
+        },
+        # LCUS-1 type relay commands
+        {
+            'on': b'\xFF\x01\x01',
+            'off': b'\xFF\x01\x00'
         },
         # Simple 1-channel relay commands
         {
             'on': b'\x01',
             'off': b'\x00'
+        },
+        # Another common format
+        {
+            'on': b'\xFE\x05\x00\x00\xFF\x00\x98\x35',
+            'off': b'\xFE\x05\x00\x00\x00\x00\xD9\xC5'
         }
     ]
 
@@ -121,12 +129,13 @@ def trigger_hid(hidraw_path, duration=0.3):
                     with open(dev, 'wb') as f:
                         f.write(cmd_on)
                         f.flush()
-                    print(f"  USB Relay ON command sent successfully")
+                    print(f"  ✓ USB Relay ON command sent successfully to {dev}")
                 except Exception as e:
-                    print(f"  Failed to send ON command: {e}")
+                    print(f"  ✗ Failed to send ON command to {dev}: {e}")
                     continue
                 
                 # Wait for the specified duration
+                print(f"  Waiting {duration} seconds...")
                 time.sleep(duration)
                 
                 # Try to send OFF command
@@ -134,21 +143,24 @@ def trigger_hid(hidraw_path, duration=0.3):
                     with open(dev, 'wb') as f:
                         f.write(cmd_off)
                         f.flush()
-                    print(f"  USB Relay OFF command sent successfully")
-                    print(f"Relay control successful using {dev} with command set {cmd_idx + 1}")
+                    print(f"  ✓ USB Relay OFF command sent successfully to {dev}")
+                    print(f"🎉 Relay control COMPLETED using {dev} with command set {cmd_idx + 1}")
                     return
                 except Exception as e:
-                    print(f"  Failed to send OFF command: {e}")
+                    print(f"  ✗ Failed to send OFF command to {dev}: {e}")
+                    # Continue to try next command set instead of giving up completely
                     continue
                     
             except PermissionError:
-                print(f"  Permission denied accessing {dev}. Try running with sudo.")
+                print(f"  🔒 Permission denied accessing {dev}. Try running with sudo.")
                 break  # Try next device
             except Exception as e:
-                print(f"  Unexpected error with command set {cmd_idx + 1}: {e}")
+                print(f"  💥 Unexpected error with command set {cmd_idx + 1}: {e}")
                 continue  # Try next command set
 
-    print(f"All candidate devices and command sets tried and failed for: {hidraw_path}")
+    print(f"❌ All candidate devices and command sets tried and failed for: {hidraw_path}")
+    print("💡 Try running with sudo, or check if relay is properly connected")
+    print("💡 Available devices:", glob.glob('/dev/hidraw*') + glob.glob('/dev/ttyUSB*'))
 
 
 def handle_relay(relay_number, duration_ms=None):

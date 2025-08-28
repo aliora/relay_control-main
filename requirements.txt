@@ -1,0 +1,7 @@
+# Minimal recommended Python packages for relay_control-main
+# pyserial is useful for serial/USB relay control
+pyserial>=3.5
+
+# Optional (hardware-specific): install on target hardware only
+# RPi.GPIO==0.7.1
+# Jetson.GPIO==2.0.0

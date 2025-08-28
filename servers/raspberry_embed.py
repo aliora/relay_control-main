@@ -9,9 +9,11 @@ try:
     IS_RPI = True
 except Exception:
     IS_RPI = False
-
     class _FakeGPIO:
         BOARD = 'BOARD'
+        OUT = 'OUT'
+        HIGH = 1
+        LOW = 0
 
         def setmode(self, mode):
             print(f"[fakeGPIO] setmode({mode})")

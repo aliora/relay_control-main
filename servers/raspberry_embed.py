@@ -60,8 +60,11 @@ def trigger_gpio(relay_pin, relay_number=None, duration=0.3):
         pass
 
 
-def trigger_hid(hidraw_path, duration=0.3):
-    print(f"🔌 Starting HID relay control for {hidraw_path} (duration: {duration}s)")
+def trigger_hid(hidraw_path, duration=0.3, relay_number=None):
+    """Trigger HID/USB relay. If fewer USB devices exist than the requested
+    relay_number, map the request to the last available device (so a single
+    device services any requested relay number)."""
+    print(f"🔌 Starting HID relay control for {hidraw_path} (duration: {duration}s) - requested relay={relay_number}")
     candidates = []
     if os.path.exists(hidraw_path):
         candidates.append(hidraw_path)
@@ -113,11 +116,23 @@ def trigger_hid(hidraw_path, duration=0.3):
         }
     ]
 
-    # Try each device with different command sets
-    for dev in devices:
-        print(f"Trying device: {dev}")
-        
-        for cmd_idx, cmd_set in enumerate(command_sets):
+    # Choose device based on requested relay_number; map out-of-range
+    # requests to the last available device. Devices list is 0-based while
+    # relay_number is expected to be 1-based (when provided).
+    if relay_number is None:
+        selected_index = 0
+    else:
+        try:
+            # ensure integer and at least 1
+            idx = max(1, int(relay_number)) - 1
+        except Exception:
+            idx = 0
+        selected_index = min(idx, len(devices) - 1)
+
+    dev = devices[selected_index]
+    print(f"Trying device: {dev} (mapped from requested relay {relay_number})")
+
+    for cmd_idx, cmd_set in enumerate(command_sets):
             try:
                 cmd_on = cmd_set['on']
                 cmd_off = cmd_set['off']
@@ -181,7 +196,7 @@ def handle_relay(relay_number, duration_ms=None):
             duration = 0.3
 
     trigger_gpio(gpio_pin, relay_number, duration=duration)
-    trigger_hid(hidraw_path, duration=duration)
+    trigger_hid(hidraw_path, duration=duration, relay_number=relay_number)
 
 
 HOST = '0.0.0.0'

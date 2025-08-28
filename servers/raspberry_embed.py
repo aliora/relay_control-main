@@ -1,9 +1,31 @@
 import os
 import subprocess
-
-from RPi import GPIO
 import time
 import socket
+
+# Try import RPi.GPIO, fall back to a fake implementation for testing on non-RPi
+try:
+    from RPi import GPIO
+    IS_RPI = True
+except Exception:
+    IS_RPI = False
+
+    class _FakeGPIO:
+        BOARD = 'BOARD'
+
+        def setmode(self, mode):
+            print(f"[fakeGPIO] setmode({mode})")
+
+        def setup(self, pin, mode):
+            print(f"[fakeGPIO] setup(pin={pin}, mode={mode})")
+
+        def output(self, pin, val):
+            print(f"[fakeGPIO] output(pin={pin}, val={val})")
+
+        def cleanup(self, pin=None):
+            print(f"[fakeGPIO] cleanup(pin={pin})")
+
+    GPIO = _FakeGPIO()
 
 relay_pins = {
     1: [16, "/dev/hidraw0"],
@@ -13,14 +35,25 @@ relay_pins = {
 GPIO.setmode(GPIO.BOARD)
 
 
-def trigger_gpio(relay_pin):
+def trigger_gpio(relay_pin, relay_number=None):
     GPIO.setup(relay_pin, GPIO.OUT)
     GPIO.output(relay_pin, GPIO.HIGH)
-    print(f"Toggling relay {relay_number} (GPIO {relay_pin})...")
+    if relay_number is None:
+        print(f"Toggling GPIO {relay_pin}...")
+    else:
+        print(f"Toggling relay {relay_number} (GPIO {relay_pin})...")
     time.sleep(0.3)
     GPIO.output(relay_pin, GPIO.LOW)
-    print(f"Relay {relay_number} turned off.")
-    GPIO.cleanup(relay_pin)
+    if relay_number is None:
+        print(f"GPIO {relay_pin} turned off.")
+    else:
+        print(f"Relay {relay_number} turned off.")
+    # cleanup specific channel
+    try:
+        GPIO.cleanup(relay_pin)
+    except Exception:
+        # ignore cleanup errors
+        pass
 
 
 def trigger_hid(hidraw_path):
@@ -48,7 +81,7 @@ def handle_relay(relay_number):
 
     gpio_pin = relay_pins[relay_number][0]
     hidraw_path = relay_pins[relay_number][1]
-    trigger_gpio(gpio_pin)
+    trigger_gpio(gpio_pin, relay_number)
     trigger_hid(hidraw_path)
 
 

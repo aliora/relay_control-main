@@ -28,14 +28,24 @@ if ! command -v pip3 >/dev/null 2>&1; then
 fi
 
 echo "[setup] Installing packages system-wide (this uses sudo)"
-sudo pip3 install --upgrade pip
+
+# Avoid forcing an upgrade of the system-provided pip package (Debian/Ubuntu
+# ship pip via apt and replacing it with pip's wheel can cause RECORD errors).
+# Prefer installing pyserial via apt when available, then fallback to pip.
+if apt-cache show python3-serial >/dev/null 2>&1; then
+  echo "[setup] Installing pyserial via apt"
+  sudo apt-get update
+  sudo apt-get install -y python3-serial
+else
+  echo "[setup] apt package python3-serial not available; will use pip to install pyserial"
+fi
 
 if [ -f "$REPO_DIR/requirements.txt" ]; then
-  echo "[setup] Installing from requirements.txt (system-wide)"
-  sudo pip3 install -r "$REPO_DIR/requirements.txt"
+  echo "[setup] Installing from requirements.txt (system-wide via pip)"
+  sudo python3 -m pip install -r "$REPO_DIR/requirements.txt"
 else
-  echo "[setup] Installing minimal recommended packages system-wide"
-  sudo pip3 install pyserial
+  echo "[setup] Installing minimal recommended packages system-wide (pyserial)"
+  sudo python3 -m pip install pyserial || echo "[setup] pip install failed; consider installing python3-serial via apt"
   echo "[setup] (Optional) To support GPIO on RPi or Jetson, install RPi.GPIO or Jetson.GPIO on the target hardware."
 fi
 

@@ -38,6 +38,35 @@ relay_pins = {
 GPIO.setmode(GPIO.BOARD)
 
 
+def _get_stable_device_id(dev_path):
+    """Return a stable identifier for a device path using udev properties.
+    Falls back to the device basename if udevadm is not available or returns
+    no useful properties. This helps keep device ordering stable across
+    power cycles.
+    """
+    try:
+        out = subprocess.check_output(['udevadm', 'info', '--query=property', '--name', dev_path], text=True)
+        props = {}
+        for line in out.splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                props[k.strip()] = v.strip()
+
+        # Prefer a serial-based id if present, otherwise vendor:product
+        if 'ID_SERIAL_SHORT' in props:
+            return props.get('ID_VENDOR_ID', '') + ':' + props.get('ID_MODEL_ID', '') + ':' + props['ID_SERIAL_SHORT']
+        if 'ID_SERIAL' in props:
+            return props.get('ID_VENDOR_ID', '') + ':' + props.get('ID_MODEL_ID', '') + ':' + props['ID_SERIAL']
+        if 'ID_VENDOR_ID' in props and 'ID_MODEL_ID' in props:
+            return props['ID_VENDOR_ID'] + ':' + props['ID_MODEL_ID']
+    except Exception:
+        # udevadm might not be present or the device may not expose properties
+        pass
+
+    # As a final fallback, use the device basename (less stable but better than nothing)
+    return os.path.basename(dev_path)
+
+
 def trigger_gpio(relay_pin, relay_number=None, duration=0.3):
     """Toggle a GPIO relay for `duration` seconds."""
     GPIO.setup(relay_pin, GPIO.OUT)
@@ -85,7 +114,15 @@ def trigger_hid(hidraw_path, duration=0.3, relay_number=None):
         print(f"❌ HID device not found: {hidraw_path} and no candidates")
         return
 
-    print(f"📋 Found {len(devices)} candidate devices: {devices}")
+    # Sort devices by a stable identifier (udev properties when available).
+    # This reduces reordering when devices are unplugged/replugged or the
+    # host reboots.
+    devices_sorted = sorted(devices, key=_get_stable_device_id)
+    print(f"📋 Found {len(devices_sorted)} candidate devices (stable-sorted): {devices_sorted}")
+    # Show mapping for debugging
+    for d in devices_sorted:
+        print(f"    {d} -> {_get_stable_device_id(d)}")
+    devices = devices_sorted
 
     # Different command sets for different relay types
     command_sets = [

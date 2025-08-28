@@ -7,6 +7,12 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 USER_NAME=${SUDO_USER:-$(whoami)}
 
+# Parse option: --no-venv to install system-wide (uses sudo pip3)
+NO_VENV=0
+if [ "${1:-}" = "--no-venv" ]; then
+  NO_VENV=1
+fi
+
 echo "[setup] Repository: $REPO_DIR"
 echo "[setup] Running as: $USER_NAME"
 
@@ -14,7 +20,10 @@ echo "[setup] Running as: $USER_NAME"
 # specific operations. Running the script as root can make the created .venv
 # owned by root and cause ensurepip failures.
 if [ "$(id -u)" -eq 0 ]; then
-  cat <<MSG
+  if [ "$NO_VENV" -eq 1 ]; then
+    echo "Running as root with --no-venv: system-wide install mode."
+  else
+    cat <<MSG
 Do not run this script with sudo or as root.
 Run as your normal user (the script will call sudo for system changes as needed):
 
@@ -27,7 +36,8 @@ remove the root-owned virtualenv and re-run as your user:
   bash setup.sh
 
 MSG
-  exit 1
+    exit 1
+  fi
 fi
 
 # Check python3
@@ -43,26 +53,47 @@ if ! command -v pip3 >/dev/null 2>&1; then
   sudo apt-get install -y python3-pip python3-venv
 fi
 
-# Create virtualenv
-if [ ! -d "$REPO_DIR/.venv" ]; then
-  echo "[setup] Creating virtualenv at $REPO_DIR/.venv"
-  python3 -m venv "$REPO_DIR/.venv"
-fi
+if [ "$NO_VENV" -eq 1 ]; then
+  echo "[setup] --no-venv: will install packages system-wide using sudo pip3"
+  # Ensure pip3 exists
+  if ! command -v pip3 >/dev/null 2>&1; then
+    echo "pip3 not found — installing python3-pip via apt"
+    sudo apt-get update
+    sudo apt-get install -y python3-pip
+  fi
 
-# Activate venv for installation
-# shellcheck disable=SC1090
-source "$REPO_DIR/.venv/bin/activate"
+  sudo pip3 install --upgrade pip
 
-pip install --upgrade pip
-
-if [ -f "$REPO_DIR/requirements.txt" ]; then
-  echo "[setup] Installing from requirements.txt"
-  pip install -r "$REPO_DIR/requirements.txt"
+  if [ -f "$REPO_DIR/requirements.txt" ]; then
+    echo "[setup] Installing from requirements.txt (system-wide)"
+    sudo pip3 install -r "$REPO_DIR/requirements.txt"
+  else
+    echo "[setup] Installing minimal recommended packages system-wide"
+    sudo pip3 install pyserial
+    echo "[setup] (Optional) To support GPIO on RPi or Jetson, install RPi.GPIO or Jetson.GPIO on the target hardware."
+  fi
 else
-  echo "[setup] No requirements.txt found — installing recommended minimal packages"
-  pip install pyserial
-  # RPi.GPIO and Jetson.GPIO are hardware-specific; only install if present/desired
-  echo "[setup] (Optional) To support GPIO on RPi or Jetson, install RPi.GPIO or Jetson.GPIO inside the venv when on the target hardware."
+  # Create virtualenv
+  if [ ! -d "$REPO_DIR/.venv" ]; then
+    echo "[setup] Creating virtualenv at $REPO_DIR/.venv"
+    python3 -m venv "$REPO_DIR/.venv"
+  fi
+
+  # Activate venv for installation
+  # shellcheck disable=SC1090
+  source "$REPO_DIR/.venv/bin/activate"
+
+  pip install --upgrade pip
+
+  if [ -f "$REPO_DIR/requirements.txt" ]; then
+    echo "[setup] Installing from requirements.txt"
+    pip install -r "$REPO_DIR/requirements.txt"
+  else
+    echo "[setup] No requirements.txt found — installing recommended minimal packages"
+    pip install pyserial
+    # RPi.GPIO and Jetson.GPIO are hardware-specific; only install if present/desired
+    echo "[setup] (Optional) To support GPIO on RPi or Jetson, install RPi.GPIO or Jetson.GPIO inside the venv when on the target hardware."
+  fi
 fi
 
 # Create udev rule to allow non-root access to hidraw and serial USB devices

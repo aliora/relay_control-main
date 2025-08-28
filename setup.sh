@@ -10,6 +10,26 @@ USER_NAME=${SUDO_USER:-$(whoami)}
 echo "[setup] Repository: $REPO_DIR"
 echo "[setup] Running as: $USER_NAME"
 
+# Prevent running the whole script under sudo/root. The script will call sudo for
+# specific operations. Running the script as root can make the created .venv
+# owned by root and cause ensurepip failures.
+if [ "$(id -u)" -eq 0 ]; then
+  cat <<MSG
+Do not run this script with sudo or as root.
+Run as your normal user (the script will call sudo for system changes as needed):
+
+  bash setup.sh
+
+If you already ran this script with sudo and see the ensurepip error,
+remove the root-owned virtualenv and re-run as your user:
+
+  sudo rm -rf "$REPO_DIR/.venv"
+  bash setup.sh
+
+MSG
+  exit 1
+fi
+
 # Check python3
 if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: python3 not found. Please install python3 and retry."

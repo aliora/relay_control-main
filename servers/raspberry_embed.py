@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 import socket
+import glob
 
 # Try import RPi.GPIO, fall back to a fake implementation for testing on non-RPi
 try:
@@ -59,21 +60,55 @@ def trigger_gpio(relay_pin, relay_number=None):
 
 
 def trigger_hid(hidraw_path):
-    if not os.path.exists(hidraw_path):
-        print(f"HID device not found: {hidraw_path}")
+    candidates = []
+    if os.path.exists(hidraw_path):
+        candidates.append(hidraw_path)
+    # Add common device paths
+    candidates.extend(sorted(glob.glob('/dev/hidraw*')))
+    candidates.extend(sorted(glob.glob('/dev/ttyUSB*')))
+    candidates.extend(sorted(glob.glob('/dev/serial/by-id/*')))
+
+    # Remove duplicates while preserving order
+    seen = set()
+    devices = []
+    for p in candidates:
+        if p not in seen:
+            seen.add(p)
+            devices.append(p)
+
+    if not devices:
+        print(f"HID device not found: {hidraw_path} and no candidates")
         return
 
-    try:
-        subprocess.run(["printf", "\\xA0\\x01\\x01\\xA2"], stdout=open(hidraw_path, "wb"))
-        print("Usb Relay Opened")
-        time.sleep(0.3)
-        subprocess.run(["printf", "\\xA0\\x01\\x00\\xA1"], stdout=open(hidraw_path, "wb"))
-        print("Usb Relay Closed")
+    # Try each candidate until one works
+    for dev in devices:
+        try:
+            # Attempt raw write (open in binary mode)
+            cmd_on = b"\xA0\x01\x01\xA2"
+            cmd_off = b"\xA0\x01\x00\xA1"
+            with open(dev, 'wb') as f:
+                f.write(cmd_on)
+                f.flush()
+                os.fsync(f.fileno())
+            print(f"Usb Relay Opened (via {dev})")
+            time.sleep(0.3)
+            with open(dev, 'wb') as f:
+                f.write(cmd_off)
+                f.flush()
+                os.fsync(f.fileno())
+            print(f"Usb Relay Closed (via {dev})")
+            return
+        except PermissionError:
+            print(f"Permission denied while accessing {dev}. Try running with sudo or adjust udev rules.")
+            # try next candidate
+        except FileNotFoundError:
+            # device disappeared, try next
+            continue
+        except Exception as e:
+            print(f"Unexpected error while accessing {dev}: {e}")
+            # try next
 
-    except PermissionError:
-        print(f"Permission denied while accessing {hidraw_path}. Try running with sudo.")
-    except Exception as e:
-        print(f"Unexpected error while accessing {hidraw_path}: {e}")
+    print(f"All candidate devices tried and failed for requested path: {hidraw_path}")
 
 
 def handle_relay(relay_number):

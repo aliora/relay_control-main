@@ -81,33 +81,45 @@ def trigger_hid(hidraw_path, duration=0.3):
         print(f"HID device not found: {hidraw_path} and no candidates")
         return
 
-    # Try each candidate until one works. Use os.open/os.write and keep the fd open
+    # Try each candidate until one works
     for dev in devices:
         try:
             cmd_on = b"\xA0\x01\x01\xA2"
             cmd_off = b"\xA0\x01\x00\xA1"
-            # Open device for read/write (low-level) so we can write ON and OFF on same fd
-            fd = os.open(dev, os.O_RDWR)
+            
+            # Send ON command
             try:
-                os.write(fd, cmd_on)
-                os.fsync(fd)
-                print(f"Usb Relay Opened (via {dev})")
-                time.sleep(duration)
-                # write off on same fd
-                # some devices expect a fresh write position; seek to start
+                fd_on = os.open(dev, os.O_WRONLY)
                 try:
-                    os.lseek(fd, 0, os.SEEK_SET)
-                except Exception:
-                    pass
-                os.write(fd, cmd_off)
-                os.fsync(fd)
-                print(f"Usb Relay Closed (via {dev})")
+                    os.write(fd_on, cmd_on)
+                    os.fsync(fd_on)
+                    print(f"USB Relay ON command sent (via {dev})")
+                finally:
+                    os.close(fd_on)
+            except Exception as e:
+                print(f"Failed to send ON command to {dev}: {e}")
+                continue
+            
+            # Wait for the specified duration
+            time.sleep(duration)
+            
+            # Send OFF command with a fresh file descriptor
+            try:
+                # Add a small delay before OFF command for some relay modules
+                time.sleep(0.05)
+                fd_off = os.open(dev, os.O_WRONLY)
+                try:
+                    os.write(fd_off, cmd_off)
+                    os.fsync(fd_off)
+                    print(f"USB Relay OFF command sent (via {dev})")
+                finally:
+                    os.close(fd_off)
+                # Success - exit the function
                 return
-            finally:
-                try:
-                    os.close(fd)
-                except Exception:
-                    pass
+            except Exception as e:
+                print(f"Failed to send OFF command to {dev}: {e}")
+                continue
+                
         except PermissionError:
             print(f"Permission denied while accessing {dev}. Try running with sudo or adjust udev rules.")
             # try next candidate

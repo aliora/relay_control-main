@@ -1,85 +1,42 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-# setup.sh - prepares python environment, installs pip packages and sets udev rules
-# Run as a normal user; the script will call sudo for system changes when needed.
+# MSR USB Relay için tam kurulum scripti
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-USER_NAME=${SUDO_USER:-$(whoami)}
+echo "🚀 MSR USB Relay kurulumu başlıyor..."
 
+# USB cihazlarını kontrol et
+echo "USB cihazları kontrol ediliyor..."
+lsusb | grep -E "(5131|1a86)" && echo "✅ Cihazlar tespit edildi" || echo "❓ Cihazlar bulunamadı"
 
-echo "[setup] Repository: $REPO_DIR"
-echo "[setup] Running as: $USER_NAME"
-
-# This script installs packages system-wide and writes udev rules.
-# It will use sudo for system changes. Run as your normal user or with sudo.
-
-# Check python3
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: python3 not found. Please install python3 and retry."
-  exit 1
-fi
-
-# Ensure pip3 is available and install packages system-wide using sudo pip3
-if ! command -v pip3 >/dev/null 2>&1; then
-  echo "pip3 not found — installing python3-pip via apt"
-  sudo apt-get update
-  sudo apt-get install -y python3-pip
-fi
-
-echo "[setup] Installing packages system-wide (this uses sudo)"
-
-# Avoid forcing an upgrade of the system-provided pip package (Debian/Ubuntu
-# ship pip via apt and replacing it with pip's wheel can cause RECORD errors).
-# Prefer installing pyserial via apt when available, then fallback to pip.
-if apt-cache show python3-serial >/dev/null 2>&1; then
-  echo "[setup] Installing pyserial via apt"
-  sudo apt-get update
-  sudo apt-get install -y python3-serial
-else
-  echo "[setup] apt package python3-serial not available; will use pip to install pyserial"
-fi
-
-if [ -f "$REPO_DIR/requirements.txt" ]; then
-  echo "[setup] Installing from requirements.txt (system-wide via pip)"
-  sudo python3 -m pip install -r "$REPO_DIR/requirements.txt"
-else
-  echo "[setup] Installing minimal recommended packages system-wide (pyserial)"
-  sudo python3 -m pip install pyserial || echo "[setup] pip install failed; consider installing python3-serial via apt"
-  echo "[setup] (Optional) To support GPIO on RPi or Jetson, install RPi.GPIO or Jetson.GPIO on the target hardware."
-fi
-
-# Create udev rule to allow non-root access to hidraw and serial USB devices
-UDEV_RULE="/etc/udev/rules.d/99-relay-control.rules"
-RULE_CONTENT="# relay_control udev rules - allow user access to relay devices\nKERNEL==\"hidraw*\", MODE=\"0666\"\nKERNEL==\"ttyUSB*\", MODE=\"0666\"\nKERNEL==\"ttyACM*\", MODE=\"0666\"\n"
-
-echo "[setup] Writing udev rule to $UDEV_RULE (requires sudo)"
-printf "%s" "$RULE_CONTENT" | sudo tee "$UDEV_RULE" > /dev/null
-
-echo "[setup] Reloading udev rules and triggering"
-sudo udevadm control --reload-rules || true
-sudo udevadm trigger || true
-
-# Add user to plugdev group if available (helps device permissions on some distros)
-if getent group plugdev >/dev/null 2>&1; then
-  echo "[setup] Adding $USER_NAME to plugdev group (requires sudo)"
-  sudo usermod -a -G plugdev "$USER_NAME" || true
-  echo "[setup] You may need to log out and back in for group change to take effect."
-fi
-
-# Make setup script executable (it already is but ensure correct mode)
-sudo chmod +x "$REPO_DIR/setup.sh" || true
-
-cat <<EOF
-
-✅ Setup complete.
-- A virtualenv was created at: $REPO_DIR/.venv
-- Pip packages installed into the venv.
-- Udev rule installed at: $UDEV_RULE (allows access to /dev/hidraw* and /dev/ttyUSB*)
-
-Next steps:
-  1) If you installed the plugdev group membership, log out and back in (or reboot).
-  2) Activate the venv: source .venv/bin/activate
-  3) Run the server or tests as your user. If you still see permission errors, try running the specific command with sudo.
-
+# Udev kuralları oluştur
+echo "Udev kuralları ekleniyor..."
+sudo tee /etc/udev/rules.d/99-msr-relay.rules > /dev/null << 'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="5131", ATTR{idProduct}=="2007", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="7523", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="5131", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666", GROUP="dialout"
 EOF
+
+# Kullanıcı yetkileri
+echo "Kullanıcı yetkileri ayarlanıyor..."
+sudo usermod -a -G plugdev,dialout $USER
+
+# Udev kurallarını yenile
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# pyserial ve pyusb paketlerini güncelle
+echo "Python paketleri güncelleniyor: pyserial ve pyusb..."
+if pip3 install --upgrade pyserial pyusb; then
+    echo "✅ pyserial ve pyusb başarıyla yüklendi/güncellendi."
+else
+    echo "❌ pyserial ve pyusb yüklenirken hata oluştu!"
+fi
+
+echo ""
+echo "✅ KURULUM TAMAMLANDI!"
+echo "====================="
+echo "📋 Kontrol komutları:"
+echo "  lsusb | grep -E '(5131|1a86)'"
+echo ""
+echo "🔄 USB cihazını çıkarıp takın ve terminali yeniden açın"

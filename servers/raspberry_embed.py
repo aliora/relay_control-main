@@ -17,16 +17,16 @@ except Exception:
         LOW = 0
 
         def setmode(self, mode):
-            print(f"[fakeGPIO] setmode({mode})")
+            pass
 
         def setup(self, pin, mode):
-            print(f"[fakeGPIO] setup(pin={pin}, mode={mode})")
+            pass
 
         def output(self, pin, val):
-            print(f"[fakeGPIO] output(pin={pin}, val={val})")
+            pass
 
         def cleanup(self, pin=None):
-            print(f"[fakeGPIO] cleanup(pin={pin})")
+            pass
 
     GPIO = _FakeGPIO()
 
@@ -71,16 +71,18 @@ def trigger_gpio(relay_pin, relay_number=None, duration=0.3):
     """Toggle a GPIO relay for `duration` seconds."""
     GPIO.setup(relay_pin, GPIO.OUT)
     GPIO.output(relay_pin, GPIO.HIGH)
+    # Only log relay open event
     if relay_number is None:
-        print(f"Toggling GPIO {relay_pin}...")
+        print(f"GPIO {relay_pin} açıldı.")
     else:
-        print(f"Toggling relay {relay_number} (GPIO {relay_pin})...")
+        print(f"Relay {relay_number} açıldı.")
     time.sleep(duration)
     GPIO.output(relay_pin, GPIO.LOW)
+    # Only log relay close event
     if relay_number is None:
-        print(f"GPIO {relay_pin} turned off.")
+        print(f"GPIO {relay_pin} kapandı.")
     else:
-        print(f"Relay {relay_number} turned off.")
+        print(f"Relay {relay_number} kapandı.")
     # cleanup specific channel
     try:
         GPIO.cleanup(relay_pin)
@@ -93,7 +95,6 @@ def trigger_hid(hidraw_path, duration=0.3, relay_number=None):
     """Trigger HID/USB relay. If fewer USB devices exist than the requested
     relay_number, map the request to the last available device (so a single
     device services any requested relay number)."""
-    print(f"🔌 Starting HID relay control for {hidraw_path} (duration: {duration}s) - requested relay={relay_number}")
     candidates = []
     if os.path.exists(hidraw_path):
         candidates.append(hidraw_path)
@@ -111,17 +112,13 @@ def trigger_hid(hidraw_path, duration=0.3, relay_number=None):
             devices.append(p)
 
     if not devices:
-        print(f"❌ HID device not found: {hidraw_path} and no candidates")
+        # no device available; do not print noisy logs
         return
 
     # Sort devices by a stable identifier (udev properties when available).
     # This reduces reordering when devices are unplugged/replugged or the
     # host reboots.
     devices_sorted = sorted(devices, key=_get_stable_device_id)
-    print(f"📋 Found {len(devices_sorted)} candidate devices (stable-sorted): {devices_sorted}")
-    # Show mapping for debugging
-    for d in devices_sorted:
-        print(f"    {d} -> {_get_stable_device_id(d)}")
     devices = devices_sorted
 
     # Different command sets for different relay types
@@ -167,52 +164,49 @@ def trigger_hid(hidraw_path, duration=0.3, relay_number=None):
         selected_index = min(idx, len(devices) - 1)
 
     dev = devices[selected_index]
-    print(f"Trying device: {dev} (mapped from requested relay {relay_number})")
 
     for cmd_idx, cmd_set in enumerate(command_sets):
             try:
                 cmd_on = cmd_set['on']
                 cmd_off = cmd_set['off']
                 
-                print(f"  Command set {cmd_idx + 1}: ON={cmd_on.hex()}, OFF={cmd_off.hex()}")
-                
+                # try command set
                 # Try to send ON command
                 try:
                     with open(dev, 'wb') as f:
                         f.write(cmd_on)
                         f.flush()
-                    print(f"  ✓ USB Relay ON command sent successfully to {dev}")
-                except Exception as e:
-                    print(f"  ✗ Failed to send ON command to {dev}: {e}")
+                except Exception:
+                    # try next command set silently
                     continue
-                
+
                 # Wait for the specified duration
-                print(f"  Waiting {duration} seconds...")
                 time.sleep(duration)
-                
+
                 # Try to send OFF command
                 try:
                     with open(dev, 'wb') as f:
                         f.write(cmd_off)
                         f.flush()
-                    print(f"  ✓ USB Relay OFF command sent successfully to {dev}")
-                    print(f"🎉 Relay control COMPLETED using {dev} with command set {cmd_idx + 1}")
+                    # Only print concise relay open/close messages
+                    if relay_number is None:
+                        print(f"USB relay açıldı.")
+                        print(f"USB relay kapandı.")
+                    else:
+                        print(f"Relay {relay_number} açıldı.")
+                        print(f"Relay {relay_number} kapandı.")
                     return
-                except Exception as e:
-                    print(f"  ✗ Failed to send OFF command to {dev}: {e}")
-                    # Continue to try next command set instead of giving up completely
+                except Exception:
+                    # try next command set silently
                     continue
                     
             except PermissionError:
-                print(f"  🔒 Permission denied accessing {dev}. Try running with sudo.")
-                break  # Try next device
-            except Exception as e:
-                print(f"  💥 Unexpected error with command set {cmd_idx + 1}: {e}")
+                # silent on permission errors to avoid noisy logs
+                break
+            except Exception:
                 continue  # Try next command set
-
-    print(f"❌ All candidate devices and command sets tried and failed for: {hidraw_path}")
-    print("💡 Try running with sudo, or check if relay is properly connected")
-    print("💡 Available devices:", glob.glob('/dev/hidraw*') + glob.glob('/dev/ttyUSB*'))
+    # all attempts failed; keep silent per reduced-logging requirement
+    return
 
 
 def handle_relay(relay_number, duration_ms=None):
@@ -246,12 +240,9 @@ try:
         s.bind((HOST, PORT))
         s.listen()
 
-        print(f"Server started. Listening on {HOST}:{PORT}...")
-
         while True:
             conn, addr = s.accept()
             with conn:
-                print(f"Connection established: {addr}")
                 data = conn.recv(1024)
                 if data:
                     try:
@@ -265,13 +256,10 @@ try:
                             relay_number = int(decoded)
                             duration_ms = None
 
-                        print(f"Received relay number: {relay_number}, duration_ms={duration_ms}")
                         handle_relay(relay_number, duration_ms=duration_ms)
                         conn.sendall(b"Relay toggled.")
                     except ValueError:
                         conn.sendall(b"Invalid relay number or duration.")
-                else:
-                    print("No data received.")
 except KeyboardInterrupt:
     print("Shutting down...")
 finally:

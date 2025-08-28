@@ -1,9 +1,8 @@
-from .models.Rl02_IO import Rl02IO
-from .models.Rn62_IO import Rn62IO
-from .models.Jetson_Embed import JetsonEmbed
-from .models.Raspberry_Embed import RaspberryEmbed
-from .models.Desktop_Embed import DesktopEmbed
-from .models.CH340_IO import CH340IO
+from models.Rl02_IO import Rl02IO
+from models.Rn62_IO import Rn62IO, CH340IO
+from models.Jetson_Embed import JetsonEmbed
+from models.Raspberry_Embed import RaspberryEmbed
+from models.Desktop_Embed import DesktopEmbed
 
 
 class RelayControl:
@@ -14,14 +13,14 @@ class RelayControl:
             self.relay_instance = Rl02IO()
         elif self.brand == 'rn-62':
             self.relay_instance = Rn62IO()
+        elif self.brand == 'ch340':
+            self.relay_instance = CH340IO()
         elif self.brand == 'jetson-embed':
             self.relay_instance = JetsonEmbed()
         elif self.brand == 'raspberry-embed':
             self.relay_instance = RaspberryEmbed()
         elif self.brand == 'desktop-embed':
             self.relay_instance = DesktopEmbed()
-        elif self.brand == 'ch340':
-            self.relay_instance = CH340IO()
         else:
             raise ValueError("Unsupported brand for relay control")
 

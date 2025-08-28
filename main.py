@@ -10,6 +10,7 @@ def main():
     relay_control.trigger_relay('127.0.0.1', 5050, relay_number=3, duration=100)
 
     # CH340 USB Relay Example
+    print("\n--- CH340 USB Röle Testi ---")
     ch340_relay = RelayControl('ch340')
     ch340_relay.trigger_relay(relay_number=1)  # IP ve port gerekmez
 

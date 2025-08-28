@@ -81,60 +81,74 @@ def trigger_hid(hidraw_path, duration=0.3):
         print(f"HID device not found: {hidraw_path} and no candidates")
         return
 
-    # Try each candidate until one works
-    for dev in devices:
-        try:
-            cmd_on = b"\xA0\x01\x01\xA2"
-            cmd_off = b"\xA0\x01\x00\xA1"
-            
-            # Send ON command
-            try:
-                fd_on = os.open(dev, os.O_WRONLY)
-                try:
-                    os.write(fd_on, cmd_on)
-                    os.fsync(fd_on)
-                    print(f"USB Relay ON command sent (via {dev})")
-                finally:
-                    os.close(fd_on)
-            except Exception as e:
-                print(f"Failed to send ON command to {dev}: {e}")
-                continue
-            
-            # Wait for the specified duration
-            time.sleep(duration)
-            
-            # Send OFF command with a fresh file descriptor
-            try:
-                # Add a small delay before OFF command for some relay modules
-                time.sleep(0.05)
-                fd_off = os.open(dev, os.O_WRONLY)
-                try:
-                    os.write(fd_off, cmd_off)
-                    os.fsync(fd_off)
-                    print(f"USB Relay OFF command sent (via {dev})")
-                finally:
-                    os.close(fd_off)
-                # Success - exit the function
-                return
-            except Exception as e:
-                print(f"Failed to send OFF command to {dev}: {e}")
-                continue
-                
-        except PermissionError:
-            print(f"Permission denied while accessing {dev}. Try running with sudo or adjust udev rules.")
-            # try next candidate
-        except FileNotFoundError:
-            # device disappeared, try next
-            continue
-        except OSError as e:
-            # low-level OS error (e.g., Invalid argument)
-            print(f"Unexpected OS error while accessing {dev}: {e}")
-            # try next
-        except Exception as e:
-            print(f"Unexpected error while accessing {dev}: {e}")
-            # try next
+    # Different command sets for different relay types
+    command_sets = [
+        # Standard USB relay commands (most common)
+        {
+            'on': b'\xA0\x01\x01\xA2',
+            'off': b'\xA0\x01\x00\xA1'
+        },
+        # Alternative relay commands
+        {
+            'on': b'\xFF\x01\x01',
+            'off': b'\xFF\x01\x00'
+        },
+        # CH340-based relay commands
+        {
+            'on': b'\xA0\x01\x01',
+            'off': b'\xA0\x01\x00'
+        },
+        # Simple 1-channel relay commands
+        {
+            'on': b'\x01',
+            'off': b'\x00'
+        }
+    ]
 
-    print(f"All candidate devices tried and failed for requested path: {hidraw_path}")
+    # Try each device with different command sets
+    for dev in devices:
+        print(f"Trying device: {dev}")
+        
+        for cmd_idx, cmd_set in enumerate(command_sets):
+            try:
+                cmd_on = cmd_set['on']
+                cmd_off = cmd_set['off']
+                
+                print(f"  Command set {cmd_idx + 1}: ON={cmd_on.hex()}, OFF={cmd_off.hex()}")
+                
+                # Try to send ON command
+                try:
+                    with open(dev, 'wb') as f:
+                        f.write(cmd_on)
+                        f.flush()
+                    print(f"  USB Relay ON command sent successfully")
+                except Exception as e:
+                    print(f"  Failed to send ON command: {e}")
+                    continue
+                
+                # Wait for the specified duration
+                time.sleep(duration)
+                
+                # Try to send OFF command
+                try:
+                    with open(dev, 'wb') as f:
+                        f.write(cmd_off)
+                        f.flush()
+                    print(f"  USB Relay OFF command sent successfully")
+                    print(f"Relay control successful using {dev} with command set {cmd_idx + 1}")
+                    return
+                except Exception as e:
+                    print(f"  Failed to send OFF command: {e}")
+                    continue
+                    
+            except PermissionError:
+                print(f"  Permission denied accessing {dev}. Try running with sudo.")
+                break  # Try next device
+            except Exception as e:
+                print(f"  Unexpected error with command set {cmd_idx + 1}: {e}")
+                continue  # Try next command set
+
+    print(f"All candidate devices and command sets tried and failed for: {hidraw_path}")
 
 
 def handle_relay(relay_number, duration_ms=None):

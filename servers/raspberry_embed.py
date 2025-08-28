@@ -81,30 +81,43 @@ def trigger_hid(hidraw_path, duration=0.3):
         print(f"HID device not found: {hidraw_path} and no candidates")
         return
 
-    # Try each candidate until one works
+    # Try each candidate until one works. Use os.open/os.write and keep the fd open
     for dev in devices:
         try:
-            # Attempt raw write (open in binary mode)
             cmd_on = b"\xA0\x01\x01\xA2"
             cmd_off = b"\xA0\x01\x00\xA1"
-            with open(dev, 'wb') as f:
-                f.write(cmd_on)
-                f.flush()
-                os.fsync(f.fileno())
-            print(f"Usb Relay Opened (via {dev})")
-            time.sleep(duration)
-            with open(dev, 'wb') as f:
-                f.write(cmd_off)
-                f.flush()
-                os.fsync(f.fileno())
-            print(f"Usb Relay Closed (via {dev})")
-            return
+            # Open device for read/write (low-level) so we can write ON and OFF on same fd
+            fd = os.open(dev, os.O_RDWR)
+            try:
+                os.write(fd, cmd_on)
+                os.fsync(fd)
+                print(f"Usb Relay Opened (via {dev})")
+                time.sleep(duration)
+                # write off on same fd
+                # some devices expect a fresh write position; seek to start
+                try:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                except Exception:
+                    pass
+                os.write(fd, cmd_off)
+                os.fsync(fd)
+                print(f"Usb Relay Closed (via {dev})")
+                return
+            finally:
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
         except PermissionError:
             print(f"Permission denied while accessing {dev}. Try running with sudo or adjust udev rules.")
             # try next candidate
         except FileNotFoundError:
             # device disappeared, try next
             continue
+        except OSError as e:
+            # low-level OS error (e.g., Invalid argument)
+            print(f"Unexpected OS error while accessing {dev}: {e}")
+            # try next
         except Exception as e:
             print(f"Unexpected error while accessing {dev}: {e}")
             # try next
